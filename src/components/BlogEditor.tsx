@@ -1,0 +1,605 @@
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useForm, Controller } from 'react-hook-form@7.55.0';
+import { BlogPost } from '../types';
+import { Input } from './ui/input';
+import { Textarea } from './ui/textarea';
+import { Button } from './ui/button';
+import { Label } from './ui/label';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from './ui/resizable';
+import { Switch } from './ui/switch';
+import { 
+  Image as ImageIcon, PanelRightOpen, PanelRightClose, Smartphone, Tablet, Monitor, 
+  Sparkles, Palette, FileText, Save, Bold, Italic, List, ListOrdered, 
+  Quote, Link as LinkIcon, Heading1, Heading2, AlertTriangle, Terminal, Minus,
+  Maximize2, Minimize2, Timer, CheckCircle2, AlertCircle
+} from 'lucide-react';
+import { BlogView } from './BlogView';
+import { cn } from '../lib/utils';
+
+interface BlogEditorProps {
+  initialData: BlogPost;
+  onSave: (data: BlogPost) => void;
+  onCancel: () => void;
+}
+
+
+
+export function BlogEditor({ initialData, onSave, onCancel }: BlogEditorProps) {
+  const [showPreview, setShowPreview] = useState(false);
+  const [activeTab, setActiveTab] = useState('write');
+  const [isZenMode, setIsZenMode] = useState(false);
+  const [deviceWidth, setDeviceWidth] = useState<'100%' | '768px' | '375px'>('100%');
+  
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const { control, register, handleSubmit, watch, setValue } = useForm<BlogPost>({
+    defaultValues: initialData,
+  });
+
+  const formValues = watch();
+  const [debouncedPreviewData, setDebouncedPreviewData] = useState<BlogPost>({ ...initialData, ...formValues });
+
+  // Handle register ref merging for the textarea
+  const { ref: contentRef, ...contentRest } = register('content');
+
+  // Stats Calculation
+  const stats = useMemo(() => {
+    const text = formValues.content || '';
+    const words = text.trim().split(/\s+/).filter(w => w.length > 0).length;
+    const time = Math.ceil(words / 200);
+    const chars = text.length;
+    return { words, time, chars };
+  }, [formValues.content]);
+
+  // SEO Score Calculation
+  const seoHealth = useMemo(() => {
+    const checks = [
+        { label: 'Title', valid: !!formValues.title },
+        { label: 'Slug', valid: !!formValues.slug },
+        { label: 'Excerpt', valid: !!formValues.excerpt },
+        { label: 'Cover Image', valid: !!formValues.coverImage },
+        { label: 'Content', valid: (formValues.content?.length || 0) > 100 }
+    ];
+    const score = checks.filter(c => c.valid).length;
+    const total = checks.length;
+    return { score, total, checks, isHealthy: score === total };
+  }, [formValues]);
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+        setDebouncedPreviewData({ ...initialData, ...formValues });
+    }, 300);
+
+    return () => clearTimeout(handler);
+  }, [formValues, initialData]);
+
+  const onSubmit = (data: BlogPost, status: 'draft' | 'published' = 'draft') => {
+    const finalData = { ...data, status };
+    onSave(finalData);
+  };
+
+  const handleTabChange = (value: string) => {
+    setActiveTab(value);
+  };
+
+  const insertMarkdown = (prefix: string, suffix: string = '') => {
+      if (!textareaRef.current) return;
+      
+      const start = textareaRef.current.selectionStart;
+      const end = textareaRef.current.selectionEnd;
+      const text = textareaRef.current.value;
+      
+      const before = text.substring(0, start);
+      const selection = text.substring(start, end);
+      const after = text.substring(end);
+      
+      const newValue = `${before}${prefix}${selection}${suffix}${after}`;
+      
+      setValue('content', newValue, { shouldValidate: true });
+      
+      // Restore focus and cursor
+      setTimeout(() => {
+          if (textareaRef.current) {
+              textareaRef.current.focus();
+              textareaRef.current.setSelectionRange(start + prefix.length, end + prefix.length);
+          }
+      }, 0);
+  };
+
+  const insertBlock = (type: string) => {
+      if (!textareaRef.current) return;
+      const text = textareaRef.current.value;
+      const end = textareaRef.current.selectionEnd;
+      
+      let block = '';
+      if (type === 'code') block = '\n```\n// Your code here\nconsole.log("Hello");\n```\n';
+      if (type === 'divider') block = '\n\n---\n\n';
+      if (type === 'info') block = '\n::: info\nThis is a helpful note for readers.\n:::\n';
+      if (type === 'warning') block = '\n::: warning\nWarning: Proceed with caution.\n:::\n';
+      if (type === 'image') block = '\n![Image Caption](https://source.unsplash.com/random/800x600)\n';
+
+      const newValue = text.substring(0, end) + block + text.substring(end);
+      setValue('content', newValue, { shouldValidate: true });
+  };
+
+  const memoizedPreview = useMemo(() => (
+      <BlogView post={debouncedPreviewData} activeTab={activeTab} />
+  ), [debouncedPreviewData, activeTab]);
+
+  const editorForm = (
+    <form onSubmit={handleSubmit((data) => onSubmit(data, 'draft'))} className="h-full flex flex-col bg-white overflow-hidden">
+      
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="flex flex-col flex-1 overflow-hidden">
+        {/* Sticky Tabs List */}
+        {!isZenMode && (
+        <div className="shrink-0 border-b bg-white/95 backdrop-blur z-10 px-6 py-2 shadow-sm flex items-center justify-between transition-all">
+           <TabsList className="h-9">
+             <TabsTrigger value="write" className="px-4 text-xs">Write</TabsTrigger>
+             <TabsTrigger value="settings" className="px-4 text-xs">Settings</TabsTrigger>
+             <TabsTrigger value="design" className="px-4 text-xs">Design</TabsTrigger>
+           </TabsList>
+           
+           <div className="flex items-center gap-4">
+               {/* Stats Widget */}
+               <div className="flex items-center gap-3 text-xs text-gray-500 font-mono">
+                  <span className="flex items-center gap-1" title="Reading Time">
+                    <Timer className="w-3 h-3" /> {stats.time} min read
+                  </span>
+                  <div className="w-px h-3 bg-gray-200" />
+                  <span title="Word Count">
+                    {stats.words} words
+                  </span>
+               </div>
+
+
+           </div>
+        </div>
+        )}
+
+        {/* Scrollable Content Area */}
+        <div className="flex-1 overflow-y-auto bg-gray-50/50 min-h-0 basis-0 relative">
+            
+        {/* WRITE TAB */}
+        <TabsContent value="write" className="min-h-full outline-none mt-0">
+           <div className={cn(
+               "mx-auto w-full bg-white shadow-sm my-6 border border-gray-100 rounded-lg flex flex-col relative transition-all duration-500 ease-in-out",
+               isZenMode ? "max-w-4xl min-h-[calc(100vh-100px)] py-10" : "max-w-3xl min-h-[calc(100vh-150px)]"
+           )}>
+              
+              {/* Cover Image Preview (if exists) */}
+              {!isZenMode && formValues.coverImage && (
+                  <div className="w-full h-48 rounded-t-lg overflow-hidden relative group bg-gray-100">
+                      <img src={formValues.coverImage} className="w-full h-full object-cover opacity-90 transition-opacity group-hover:opacity-100" />
+                      <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Button size="xs" variant="secondary" onClick={() => setActiveTab('settings')}>Change Cover</Button>
+                      </div>
+                  </div>
+              )}
+
+              <div className={cn("flex-1 flex flex-col", isZenMode ? "p-12 md:p-20" : "p-8 md:p-12 pb-4")}>
+                  {/* Title Input */}
+                  <div className="mb-6">
+                    <Input 
+                        {...register('title')} 
+                        className="text-4xl md:text-5xl font-bold border-none px-0 shadow-none focus-visible:ring-0 placeholder:text-gray-300 h-auto py-2 leading-tight" 
+                        placeholder="Post Title..." 
+                    />
+                  </div>
+
+                  {/* Toolbar */}
+                  <div className={cn(
+                      "sticky z-20 bg-white/95 backdrop-blur py-2 mb-4 border-b border-gray-100 flex items-center gap-1 transition-all overflow-x-auto",
+                      isZenMode ? "top-0" : "top-0"
+                  )}>
+                      <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0" onClick={() => insertMarkdown('**', '**')} title="Bold">
+                          <Bold className="w-4 h-4" />
+                      </Button>
+                      <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0" onClick={() => insertMarkdown('*', '*')} title="Italic">
+                          <Italic className="w-4 h-4" />
+                      </Button>
+                      <div className="w-px h-4 bg-gray-200 mx-1 shrink-0" />
+                      <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0" onClick={() => insertMarkdown('# ')} title="Heading 1">
+                          <Heading1 className="w-4 h-4" />
+                      </Button>
+                      <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0" onClick={() => insertMarkdown('## ')} title="Heading 2">
+                          <Heading2 className="w-4 h-4" />
+                      </Button>
+                      <div className="w-px h-4 bg-gray-200 mx-1 shrink-0" />
+                      <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0" onClick={() => insertMarkdown('> ')} title="Quote">
+                          <Quote className="w-4 h-4" />
+                      </Button>
+                      <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0" onClick={() => insertMarkdown('- ')} title="Bullet List">
+                          <List className="w-4 h-4" />
+                      </Button>
+                      <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0" onClick={() => insertMarkdown('1. ')} title="Numbered List">
+                          <ListOrdered className="w-4 h-4" />
+                      </Button>
+                      <div className="w-px h-4 bg-gray-200 mx-1 shrink-0" />
+                      <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0" onClick={() => insertMarkdown('[', '](url)')} title="Link">
+                          <LinkIcon className="w-4 h-4" />
+                      </Button>
+                      <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0" onClick={() => insertMarkdown('![alt text](', ')')} title="Image">
+                          <ImageIcon className="w-4 h-4" />
+                      </Button>
+                      
+                      {/* Advanced Blocks */}
+                      <div className="w-px h-4 bg-gray-200 mx-1 shrink-0" />
+                      <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0" onClick={() => insertBlock('code')} title="Code Block">
+                          <Terminal className="w-4 h-4" />
+                      </Button>
+                      <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0" onClick={() => insertBlock('info')} title="Info Alert">
+                          <AlertTriangle className="w-4 h-4 text-blue-500" />
+                      </Button>
+                      <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0" onClick={() => insertBlock('warning')} title="Warning Alert">
+                          <AlertTriangle className="w-4 h-4 text-amber-500" />
+                      </Button>
+                      <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0" onClick={() => insertBlock('divider')} title="Divider">
+                          <Minus className="w-4 h-4" />
+                      </Button>
+
+                      {/* Zen Toggle */}
+                      <div className="flex-1" />
+                      <div className="w-px h-4 bg-gray-200 mx-1 shrink-0" />
+                      <Button 
+                        type="button" 
+                        variant={isZenMode ? "secondary" : "ghost"} 
+                        size="sm" 
+                        className="h-8 w-8 p-0 shrink-0" 
+                        onClick={() => setIsZenMode(!isZenMode)} 
+                        title={isZenMode ? "Exit Zen Mode" : "Enter Zen Mode"}
+                      >
+                          {isZenMode ? <Minimize2 className="w-4 h-4 text-blue-600" /> : <Maximize2 className="w-4 h-4" />}
+                      </Button>
+                  </div>
+
+                  {/* Main Editor */}
+                  <div className="flex-1 min-h-[400px]">
+                      <Textarea 
+                        {...contentRest} 
+                        ref={(e) => {
+                            contentRef(e);
+                            textareaRef.current = e;
+                        }}
+                        className="w-full h-full min-h-[400px] border-none shadow-none resize-none focus-visible:ring-0 p-0 text-lg leading-relaxed text-gray-800 font-mono" 
+                        placeholder="Tell your story..."
+                      />
+                  </div>
+              </div>
+           </div>
+        </TabsContent>
+
+        {/* SETTINGS TAB (Merged Hero & SEO) */}
+        <TabsContent value="settings" className="max-w-4xl mx-auto w-full p-6 pb-20 mt-0">
+          <div className="grid gap-6">
+              <Card>
+                <CardHeader>
+                    <CardTitle>General Settings</CardTitle>
+                    <CardDescription>Configure how your post appears in listings and URLs.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                    <div className="grid md:grid-cols-2 gap-6">
+                        <div>
+                            <Label>URL Slug</Label>
+                            <Input {...register('slug')} placeholder="my-awesome-post" className="font-mono text-sm" />
+                        </div>
+                        <div>
+                            <Label>Publish Date</Label>
+                            <Input type="date" {...register('publishedAt')} />
+                        </div>
+                    </div>
+                    <div className="grid md:grid-cols-2 gap-6">
+                         <div>
+                            <Label>Author</Label>
+                            <Input {...register('author')} />
+                        </div>
+                         <div>
+                            <Label>Tags (comma separated)</Label>
+                            <Input {...register('tags')} />
+                        </div>
+                    </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader><CardTitle>Cover Image</CardTitle></CardHeader>
+                <CardContent>
+                   <Label className="mb-2 block">Image URL</Label>
+                   <div className="flex gap-2">
+                        <Input {...register('coverImage')} placeholder="https://..." />
+                        <Button variant="outline" size="icon" type="button"><ImageIcon className="w-4 h-4" /></Button>
+                   </div>
+                   {formValues.coverImage && (
+                       <div className="mt-4 rounded-md overflow-hidden h-40 bg-gray-100 border">
+                           <img src={formValues.coverImage} className="w-full h-full object-cover" />
+                       </div>
+                   )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                    <CardTitle>SEO & Social</CardTitle>
+                    <CardDescription>Control how your post looks when shared on social media.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Label className="mb-2 block">Excerpt / Meta Description</Label>
+                  <Textarea {...register('excerpt')} placeholder="A brief summary of your post..." className="h-24 mb-4" />
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                      <div>
+                          <Label className="mb-2 block">Author Twitter URL</Label>
+                          <Input {...register('authorTwitter')} placeholder="https://twitter.com/username" />
+                      </div>
+                      <div>
+                          <Label className="mb-2 block">Author LinkedIn URL</Label>
+                          <Input {...register('authorLinkedin')} placeholder="https://linkedin.com/in/username" />
+                      </div>
+                  </div>
+                </CardContent>
+              </Card>
+          </div>
+        </TabsContent>
+
+        {/* DESIGN TAB */}
+        <TabsContent value="design" className="max-w-4xl mx-auto w-full p-6 pb-20 mt-0 space-y-4">
+           <Card>
+            <CardHeader><CardTitle className="flex items-center gap-2"><Palette className="w-4 h-4" /> Appearance Settings</CardTitle></CardHeader>
+            <CardContent className="space-y-6">
+               <div className="p-4 bg-gray-50 rounded-lg border border-gray-100">
+                  <Label className="mb-3 block flex items-center gap-2"><Sparkles className="w-3 h-3 text-amber-500" /> Quick Presets</Label>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                     <Button variant="outline" size="sm" type="button" className="text-xs justify-start" onClick={() => {
+                        setValue('theme.mode', 'light');
+                        setValue('theme.fontHeading', 'serif');
+                        setValue('theme.fontBody', 'sans');
+                        setValue('theme.accentColor', '#000000');
+                        setValue('enableDropCap', true);
+                     }}>
+                        📰 Editorial
+                     </Button>
+                     <Button variant="outline" size="sm" type="button" className="text-xs justify-start" onClick={() => {
+                        setValue('theme.mode', 'dark');
+                        setValue('theme.fontHeading', 'mono');
+                        setValue('theme.fontBody', 'mono');
+                        setValue('theme.accentColor', '#00FF99');
+                        setValue('enableDropCap', false);
+                     }}>
+                         Terminal
+                     </Button>
+                     <Button variant="outline" size="sm" type="button" className="text-xs justify-start" onClick={() => {
+                        setValue('theme.mode', 'midnight');
+                        setValue('theme.fontHeading', 'sans');
+                        setValue('theme.fontBody', 'sans');
+                        setValue('theme.accentColor', '#6366f1');
+                        setValue('enableDropCap', false);
+                     }}>
+                        🌃 Midnight
+                     </Button>
+                  </div>
+               </div>
+               
+               {/* New Toggles */}
+               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 p-4 border rounded-lg bg-white shadow-sm">
+                   <div className="flex items-center justify-between gap-4">
+                       <Label htmlFor="toc-toggle" className="cursor-pointer">Table of Contents</Label>
+                       <Controller
+                         control={control}
+                         name="enableTableOfContents"
+                         render={({ field }) => (
+                           <Switch 
+                             id="toc-toggle" 
+                             checked={field.value} 
+                             onCheckedChange={field.onChange} 
+                           />
+                         )}
+                       />
+                   </div>
+                   <div className="flex items-center justify-between gap-4">
+                       <Label htmlFor="dropcap-toggle" className="cursor-pointer">Drop Cap</Label>
+                       <Controller
+                         control={control}
+                         name="enableDropCap"
+                         render={({ field }) => (
+                           <Switch 
+                             id="dropcap-toggle" 
+                             checked={field.value} 
+                             onCheckedChange={field.onChange} 
+                           />
+                         )}
+                       />
+                   </div>
+                   <div className="flex items-center justify-between gap-4">
+                       <Label htmlFor="newsletter-toggle" className="cursor-pointer">Newsletter Block</Label>
+                       <Controller
+                         control={control}
+                         name="enableNewsletter"
+                         render={({ field }) => (
+                           <Switch 
+                             id="newsletter-toggle" 
+                             checked={field.value} 
+                             onCheckedChange={field.onChange} 
+                           />
+                         )}
+                       />
+                   </div>
+               </div>
+
+               <div className="grid grid-cols-2 gap-6">
+                 <div>
+                    <Label>Color Mode</Label>
+                    <Controller
+                      control={control}
+                      name="theme.mode"
+                      render={({ field }) => (
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select theme" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="dark">Dark</SelectItem>
+                            <SelectItem value="light">Light</SelectItem>
+                            <SelectItem value="midnight">Midnight</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                 </div>
+                 <div>
+                    <Label>Accent Color</Label>
+                    <div className="flex gap-2">
+                      <Input type="color" {...register('theme.accentColor')} className="w-12 h-10 p-1" />
+                      <Input {...register('theme.accentColor')} placeholder="#FFFFFF" className="uppercase" />
+                    </div>
+                 </div>
+               </div>
+               
+               <div className="grid grid-cols-2 gap-6">
+                 <div>
+                    <Label>Heading Font</Label>
+                    <Controller
+                      control={control}
+                      name="theme.fontHeading"
+                      render={({ field }) => (
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select Font" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="sans">Modern Sans (Inter)</SelectItem>
+                            <SelectItem value="serif">Editorial Serif (Playfair)</SelectItem>
+                            <SelectItem value="mono">Technical Mono (JetBrains)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                 </div>
+                 <div>
+                    <Label>Body Font</Label>
+                     <Controller
+                      control={control}
+                      name="theme.fontBody"
+                      render={({ field }) => (
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select Font" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="sans">Modern Sans (Inter)</SelectItem>
+                            <SelectItem value="serif">Editorial Serif (Merriweather)</SelectItem>
+                            <SelectItem value="mono">Technical Mono (JetBrains)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                 </div>
+               </div>
+            </CardContent>
+           </Card>
+        </TabsContent>
+
+        </div>
+      </Tabs>
+    </form>
+  );
+
+  return (
+    <div className="h-screen flex flex-col bg-white overflow-hidden">
+      <div className="sticky top-0 z-50 h-[72px] border-b p-4 flex justify-between items-center bg-gray-50 shrink-0">
+        <div className="flex items-center gap-4">
+            <h2 className="text-xl font-bold flex items-center gap-2">
+                <FileText className="w-5 h-5 text-gray-500" />
+                Blog Editor
+            </h2>
+            <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => setShowPreview(!showPreview)}
+                className="hidden md:flex gap-2"
+            >
+                {showPreview ? <PanelRightClose className="w-4 h-4" /> : <PanelRightOpen className="w-4 h-4" />}
+                {showPreview ? 'Close Preview' : 'Split Preview'}
+            </Button>
+        </div>
+        <div className="space-x-2 flex items-center">
+          <div className="mr-4 flex items-center gap-2 text-xs font-medium px-3 py-1.5 bg-gray-100 rounded-full" title={seoHealth.isHealthy ? "Post is ready for SEO" : "Missing key SEO fields"}>
+             {seoHealth.isHealthy ? (
+                 <CheckCircle2 className="w-3 h-3 text-green-600" />
+             ) : (
+                 <AlertCircle className="w-3 h-3 text-amber-600" />
+             )}
+             <span className={seoHealth.isHealthy ? "text-green-700" : "text-amber-700"}>
+                 SEO Score: {seoHealth.score}/{seoHealth.total}
+             </span>
+          </div>
+
+          <Button variant="ghost" onClick={onCancel}>Cancel</Button>
+          <Button 
+            variant="outline" 
+            onClick={handleSubmit((data) => onSubmit(data, 'draft'))}
+            className="gap-2"
+          >
+            <FileText className="w-4 h-4" /> Save Draft
+          </Button>
+          <Button 
+            onClick={handleSubmit((data) => onSubmit(data, 'published'))}
+            className="gap-2 bg-green-600 hover:bg-green-700"
+          >
+            <Save className="w-4 h-4" /> Publish
+          </Button>
+        </div>
+      </div>
+      
+      <div className="flex-1 flex flex-col min-h-0">
+        {showPreview ? (
+             <ResizablePanelGroup direction="horizontal" className="h-full items-stretch">
+                <ResizablePanel defaultSize={50} minSize={30} className="relative z-0 border-r border-gray-200">
+                    {editorForm}
+                </ResizablePanel>
+                <ResizableHandle />
+                <ResizablePanel defaultSize={50} minSize={30} className="h-full bg-gray-100 shadow-inner">
+                    <div className="h-full overflow-y-auto">
+                     <div className="sticky top-0 z-50 flex justify-center items-center gap-2 bg-white/80 backdrop-blur border-b border-gray-200">
+                        <Button 
+                            variant={deviceWidth === '375px' ? 'secondary' : 'ghost'} 
+                            size="icon" 
+                            className="h-8 w-8"
+                            onClick={() => setDeviceWidth('375px')}
+                        >
+                            <Smartphone className="w-4 h-4" />
+                        </Button>
+                        <Button 
+                            variant={deviceWidth === '768px' ? 'secondary' : 'ghost'} 
+                            size="icon" 
+                            className="h-8 w-8"
+                            onClick={() => setDeviceWidth('768px')}
+                        >
+                            <Tablet className="w-4 h-4" />
+                        </Button>
+                        <Button 
+                            variant={deviceWidth === '100%' ? 'secondary' : 'ghost'} 
+                            size="icon" 
+                            className="h-8 w-8"
+                            onClick={() => setDeviceWidth('100%')}
+                        >
+                            <Monitor className="w-4 h-4" />
+                        </Button>
+                     </div>
+                     <div className="mx-auto bg-white shadow-xl min-h-screen border-x border-gray-200 transition-all duration-300 origin-top"
+                          style={{ width: deviceWidth }}>
+                         {memoizedPreview}
+                     </div>
+                    </div>
+                </ResizablePanel>
+             </ResizablePanelGroup>
+        ) : (
+            <div className="h-full max-w-7xl mx-auto w-full border-x border-gray-100 shadow-sm">
+                {editorForm}
+            </div>
+        )}
+      </div>
+    </div>
+  );
+}
